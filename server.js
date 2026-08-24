@@ -23,20 +23,40 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Database Connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/farosawifi')
-.then(() => {
+// Database connection handler for serverless & local
+let isConnected = false;
+const connectDB = async () => {
+  if (isConnected || mongoose.connection.readyState === 1) {
+    return;
+  }
+  
+  const uri = process.env.MONGODB_URI || 'mongodb+srv://fazaachmad2000_db_user:AM62mTwijhZ4zQRb@cluster0.1nyc9vn.mongodb.net/farosawifi?retryWrites=true&w=majority&appName=Cluster0';
+
+  await mongoose.connect(uri);
+  isConnected = true;
   console.log('MongoDB connected successfully');
-  // Jalankan seeder
-  seedCities();
-  seedPackages();
-  seedEmployees();
-  // Jalankan pengecekan auto-activate setiap 1 menit (60000ms)
-  setInterval(autoActivateInstallations, 60000);
-  // Jalankan sekali saat start
-  autoActivateInstallations();
-})
-.catch((err) => console.error('MongoDB connection error:', err));
+  
+  // Seed initial data
+  try {
+    await seedCities();
+    await seedPackages();
+    await seedEmployees();
+    await autoActivateInstallations();
+  } catch (e) {
+    console.log('Seeder note:', e.message);
+  }
+};
+
+// Ensure DB is connected before handling any API request
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error('Database connection error:', err.message);
+    res.status(500).json({ error: 'Database connection failed', details: err.message });
+  }
+});
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -53,11 +73,12 @@ app.get('/', (req, res) => {
   res.send('Farosa API is running...');
 });
 
-if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+// Auto-activate interval only for continuous local server
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  setInterval(autoActivateInstallations, 60000);
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });
 }
 
 module.exports = app;
-
